@@ -6,18 +6,30 @@ const port = 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
+
 app.set("view engine", "ejs");
 
 import mongoose from "mongoose";
+import mongooseEncryption from "mongoose-encryption";
+
+// Store mongoose-encryption functionality in a constant variable
+const encrypt = mongooseEncryption;
+
 const uri = "mongodb://127.0.0.1/userDB";
 mongoose.connect(uri);
 
-const userSchema = {
+const userSchema = new mongoose.Schema({
     email: String,
     password: String,
-};
+});
+
+// It's basically a [encryption / decryption key].
+const secret = "Thisisourlittlesecret.";
+userSchema.plugin(encrypt, { secret: secret, encryptedFields: ["password"] });
 
 const userModel = mongoose.model("User", userSchema);
+
+// The way mongoose encrypt is that when you save data(field to be encrypted) it decrypts and when you "find" it will decrypt the data.
 
 app.get("/", async (req, res) => {
     res.render("home");
