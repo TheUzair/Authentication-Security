@@ -3,6 +3,10 @@ dotenv.config();
 
 import express from "express";
 import bodyParser from "body-parser";
+import mongoose from "mongoose";
+import md5 from "md5";
+
+console.log(md5("1234"));
 
 const app = express();
 const port = 3000;
@@ -11,21 +15,15 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 app.set("view engine", "ejs");
 
-console.log(process.env.API_KEY);
-
-import mongoose from "mongoose";
-import mongooseEncryption from "mongoose-encryption";
-const encrypt = mongooseEncryption;
 const uri = "mongodb://127.0.0.1/userDB";
 mongoose.connect(uri);
+
+console.log(process.env.API_KEY);
 
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
 });
-
-// prettier-ignore
-userSchema.plugin(encrypt, { secret: process.env.SECRET, encryptedFields: ["password"] });
 
 const userModel = mongoose.model("User", userSchema);
 
@@ -45,7 +43,7 @@ app.post("/register", async (req, res) => {
     try {
         const newUser = new userModel({
             email: req.body.username,
-            password: req.body.password,
+            password: md5(req.body.password),
         });
 
         await newUser.save();
@@ -58,7 +56,7 @@ app.post("/register", async (req, res) => {
 
 app.post("/login", async (req, res) => {
     const username = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password);
 
     try {
         const foundUser = await userModel.findOne({ email: username });
