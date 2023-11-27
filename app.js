@@ -4,9 +4,9 @@ dotenv.config();
 import express from "express";
 import bodyParser from "body-parser";
 import mongoose from "mongoose";
-import md5 from "md5";
+import bcrypt from "bcrypt";
 
-console.log(md5("1234"));
+const saltRounds = 10;
 
 const app = express();
 const port = 3000;
@@ -40,29 +40,47 @@ app.get("/register", async (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-    try {
-        const newUser = new userModel({
-            email: req.body.username,
-            password: md5(req.body.password),
-        });
+    // Hashing a password
+    bcrypt.hash(req.body.password, saltRounds, async function (err, hash) {
+        console.log("Hashed Password:", hash);
 
-        await newUser.save();
-        res.render("secrets");
-    } catch (err) {
-        console.log(err);
-        res.status(500).send("Internal Server Error");
-    }
+        try {
+            const newUser = new userModel({
+                email: req.body.username,
+                password: hash,
+            });
+
+            // Since we're using 'await' here, this function needs to be asynchronous
+            await newUser.save();
+            res.render("secrets");
+        } catch (err) {
+            console.log(err);
+            res.status(500).send("Internal Server Error");
+        }
+    });
 });
 
 app.post("/login", async (req, res) => {
     const username = req.body.username;
-    const password = md5(req.body.password);
+    const password = req.body.password;
 
     try {
         const foundUser = await userModel.findOne({ email: username });
+        // prettier-ignore
+        if (foundUser) {
+            bcrypt.compare(password, foundUser.password, function(err, result) {
+                if (err) {
+                    console.error(err);
+                    res.status(500).send("Internal Server Error");
+                    return;
+                }
 
-        if (foundUser && foundUser.password === password) {
-            res.render("secrets");
+                if (result === true) {
+                    res.render("secrets");
+                } else {
+                    res.send("Invalid username or password");
+                }
+            });
         } else {
             res.send("Invalid username or password");
         }
