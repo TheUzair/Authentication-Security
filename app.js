@@ -8,6 +8,8 @@ import mongoose from "mongoose";
 import session from "express-session";
 import passport from "passport";
 import PassportLocalMongoose from "passport-local-mongoose";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import findOrCreate from "mongoose-findorcreate";
 
 const app = express();
 const port = 3000;
@@ -34,36 +36,93 @@ app.use(passport.session());
 const uri = "mongodb://127.0.0.1/userDB";
 mongoose.connect(uri);
 
-console.log(process.env.API_KEY); // Log environment variable (if present)
-
 // User schema and model setup
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
+    googleId: String,
 });
 
 userSchema.plugin(PassportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 const userModel = mongoose.model("User", userSchema);
 
 // Passport strategies and serialization/deserialization setup
 passport.use(userModel.createStrategy());
-passport.serializeUser(userModel.serializeUser());
-passport.deserializeUser(userModel.deserializeUser());
+
+// Serialization function to store user information in the session
+passport.serializeUser(function (user, cb) {
+    process.nextTick(function () {
+        return cb(null, {
+            id: user.id,
+            username: user.username,
+            picture: user.picture,
+        });
+    });
+});
+
+// Deserialization function to retrieve user information from the session
+passport.deserializeUser(function (user, cb) {
+    process.nextTick(function () {
+        return cb(null, user);
+    });
+});
+
+// Google OAuth2.0 strategy setup
+passport.use(
+    new GoogleStrategy(
+        {
+            clientID: process.env.CLIENT_ID,
+            clientSecret: process.env.CLIENT_SECRET,
+            callbackURL: "http://localhost:3000/auth/google/secrets",
+            scope: "profile",
+        },
+        function (accessToken, refreshToken, profile, cb) {
+            console.log("printing profile:", profile);
+            userModel.findOrCreate(
+                { googleId: profile.id },
+                function (err, user) {
+                    return cb(err, user);
+                }
+            );
+        }
+    )
+);
 
 // Routes
+
+// Home route
 app.get("/", async (req, res) => {
     res.render("home");
 });
 
+// Google OAuth2.0 authentication route
+app.get("/auth/google", async (req, res) => {
+    passport.authenticate("google", { scope: ["profile"] })(req, res);
+});
+
+// Callback route after successful Google authentication
+app.get(
+    "/auth/google/secrets",
+    passport.authenticate("google", { failureRedirect: "/login" }),
+    function (req, res) {
+        // Successful authentication, redirect to the secrets page
+        res.redirect("/secrets");
+    }
+);
+
+// Login route
 app.get("/login", async (req, res) => {
     res.render("login");
 });
 
+// Register route
 app.get("/register", async (req, res) => {
     res.render("register");
 });
 
+// Secrets route
 app.get("/secrets", async (req, res) => {
     if (req.isAuthenticated()) {
         res.render("secrets");
@@ -72,6 +131,7 @@ app.get("/secrets", async (req, res) => {
     }
 });
 
+// Logout route
 app.get("/logout", async (req, res) => {
     // Logout route, with callback handling errors
     req.logout((err) => {
@@ -83,8 +143,8 @@ app.get("/logout", async (req, res) => {
     });
 });
 
+// Register route using Passport's register method
 app.post("/register", async (req, res) => {
-    // Registration route using Passport's register method
     userModel.register(
         { username: req.body.username },
         req.body.password,
@@ -102,8 +162,8 @@ app.post("/register", async (req, res) => {
     );
 });
 
+// Login route using custom login logic
 app.post("/login", async (req, res) => {
-    // Login route using custom login logic
     const newUser = new userModel({
         username: req.body.username,
         password: req.body.password,
