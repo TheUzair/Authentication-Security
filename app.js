@@ -4,29 +4,54 @@ dotenv.config();
 import express from "express";
 import bodyParser from "body-parser";
 import mongoose from "mongoose";
-import bcrypt from "bcrypt";
 
-const saltRounds = 10;
+import session from "express-session";
+import passport from "passport";
+import PassportLocalMongoose from "passport-local-mongoose";
 
 const app = express();
 const port = 3000;
 
+// Middleware setup
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 app.set("view engine", "ejs");
 
+// Session setup
+app.use(
+    session({
+        secret: "A little secret.",
+        resave: false,
+        saveUninitialized: false,
+    })
+);
+
+// Passport setup
+app.use(passport.initialize());
+app.use(passport.session());
+
+// MongoDB connection
 const uri = "mongodb://127.0.0.1/userDB";
 mongoose.connect(uri);
 
-console.log(process.env.API_KEY);
+console.log(process.env.API_KEY); // Log environment variable (if present)
 
+// User schema and model setup
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
 });
 
+userSchema.plugin(PassportLocalMongoose);
+
 const userModel = mongoose.model("User", userSchema);
 
+// Passport strategies and serialization/deserialization setup
+passport.use(userModel.createStrategy());
+passport.serializeUser(userModel.serializeUser());
+passport.deserializeUser(userModel.deserializeUser());
+
+// Routes
 app.get("/", async (req, res) => {
     res.render("home");
 });
@@ -39,57 +64,64 @@ app.get("/register", async (req, res) => {
     res.render("register");
 });
 
+app.get("/secrets", async (req, res) => {
+    if (req.isAuthenticated()) {
+        res.render("secrets");
+    } else {
+        res.redirect("/login");
+    }
+});
+
+app.get("/logout", async (req, res) => {
+    // Logout route, with callback handling errors
+    req.logout((err) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send("Internal Server Error");
+        }
+        res.redirect("/");
+    });
+});
+
 app.post("/register", async (req, res) => {
-    // Hashing a password
-    bcrypt.hash(req.body.password, saltRounds, async function (err, hash) {
-        console.log("Hashed Password:", hash);
+    // Registration route using Passport's register method
+    userModel.register(
+        { username: req.body.username },
+        req.body.password,
+        function (err, user) {
+            if (err) {
+                console.log(err);
+                res.redirect("/register");
+            } else {
+                // Authenticate user after successful registration
+                passport.authenticate("local")(req, res, function () {
+                    res.redirect("/secrets");
+                });
+            }
+        }
+    );
+});
 
-        try {
-            const newUser = new userModel({
-                email: req.body.username,
-                password: hash,
-            });
+app.post("/login", async (req, res) => {
+    // Login route using custom login logic
+    const newUser = new userModel({
+        username: req.body.username,
+        password: req.body.password,
+    });
 
-            // Since we're using 'await' here, this function needs to be asynchronous
-            await newUser.save();
-            res.render("secrets");
-        } catch (err) {
+    req.login(newUser, function (err) {
+        if (err) {
             console.log(err);
-            res.status(500).send("Internal Server Error");
+        } else {
+            // Authenticate user after successful login
+            passport.authenticate("local")(req, res, function () {
+                res.redirect("/secrets");
+            });
         }
     });
 });
 
-app.post("/login", async (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
-
-    try {
-        const foundUser = await userModel.findOne({ email: username });
-        // prettier-ignore
-        if (foundUser) {
-            bcrypt.compare(password, foundUser.password, function(err, result) {
-                if (err) {
-                    console.error(err);
-                    res.status(500).send("Internal Server Error");
-                    return;
-                }
-
-                if (result === true) {
-                    res.render("secrets");
-                } else {
-                    res.send("Invalid username or password");
-                }
-            });
-        } else {
-            res.send("Invalid username or password");
-        }
-    } catch (err) {
-        console.error(err);
-        res.status(500).send("Internal Server Error");
-    }
-});
-
+// Start the server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
