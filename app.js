@@ -41,6 +41,7 @@ const userSchema = new mongoose.Schema({
     email: String,
     password: String,
     googleId: String,
+    secret: String,
 });
 
 userSchema.plugin(PassportLocalMongoose);
@@ -124,10 +125,46 @@ app.get("/register", async (req, res) => {
 
 // Secrets route
 app.get("/secrets", async (req, res) => {
+    try {
+        const foundUsers = await userModel.find({ secret: { $ne: null } });
+
+        if (foundUsers) {
+            res.render("secrets", { userWithSecrets: foundUsers });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Internal Server Error");
+    }
+});
+
+// Submit route
+app.get("/submit", async (req, res) => {
     if (req.isAuthenticated()) {
-        res.render("secrets");
+        res.render("submit");
     } else {
         res.redirect("/login");
+    }
+});
+
+// Submit a new secret
+app.post("/submit", async (req, res) => {
+    const submittedSecret = req.body.secret;
+    console.log(req.user.id);
+
+    try {
+        const foundUser = await userModel.findOne({ _id: req.user.id });
+
+        if (foundUser) {
+            foundUser.secret = submittedSecret;
+            await foundUser.save();
+            res.redirect("/secrets");
+        } else {
+            console.log("User not found");
+            // Handle the case where the user is not found
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Internal Server Error");
     }
 });
 
